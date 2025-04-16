@@ -1,0 +1,36 @@
+name: C++ CI for Schenon`s Coder-Decoder
+
+on: [push, pull_request] # Запускать при push и pull request
+
+jobs:
+  build_and_test: # Название задачи
+    runs-on: ubuntu-latest # Используем последнюю Ubuntu
+
+    steps:
+    # Шаг 1: Скачивание репозитория и сабмодулей
+    - name: Checkout repository and submodules
+      uses: actions/checkout@v4 # Используем актуальную версию checkout
+      with:
+        submodules: 'recursive' # Обязательно для Eigen и lazycsv
+
+    # Шаг 2: Установка зависимостей
+    - name: Install dependencies
+      run: |
+        sudo apt-get update -y # -y для автоматического подтверждения
+        sudo apt-get install -y g++ make libgtest-dev
+        # Примечание: libgtest-dev в Ubuntu требует ручной сборки библиотек после установки пакета
+        # Собираем GTest библиотеки, если они еще не собраны (это стандартный шаг для Ubuntu CI)
+        cd /usr/src/googletest
+        sudo cmake .
+        sudo make
+        sudo cp lib/*.a /usr/lib # Копируем собранные библиотеки туда, где их найдет линковщик
+
+    # Шаг 3: Сборка проекта с помощью Makefile
+    - name: Build project
+      run: |
+        make # Собирает цель 'all' по умолчанию
+
+    # Шаг 4: Запуск модульных тестов
+    - name: Run unit tests (gtest)
+      run: |
+        make test # Эта команда собирает и запускает тесты ($(TESTPROJECT))
