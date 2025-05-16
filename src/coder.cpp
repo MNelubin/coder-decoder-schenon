@@ -46,31 +46,55 @@ bool compareFrequency(const std::pair<unsigned char, int>& a, const std::pair<un
 
 /**
  * @brief Строит словарь Шеннона на основе частот байтов.
- * @param frequency_map Карта частот байтов.
- * @return Словарь Шеннона.
+ *
+ * Эта функция принимает карту частот байтов и строит словарь кодов Шеннона.
+ * Коды генерируются на основе кумулятивных вероятностей символов, отсортированных по убыванию частоты.
+ *
+ * @param frequency_map Карта частот байтов, где ключ - байт, значение - его частота.
+ * @return Словарь Шеннона, где ключ - байт, значение - его код в виде строки из '0' и '1'.
  */
 std::map<unsigned char, std::string> build_shannon_dictionary(const std::map<unsigned char, int>& frequency_map) {
     std::map<unsigned char, std::string> dictionary;
+
+    // Если карта частот пуста, возвращаем пустой словарь
+    if (frequency_map.empty()) {
+        return dictionary;
+    }
+
+    // Преобразуем карту частот в вектор пар для сортировки
     std::vector<std::pair<unsigned char, int>> sorted_frequencies(frequency_map.begin(), frequency_map.end());
 
     // Сортируем частоты по убыванию
     std::sort(sorted_frequencies.begin(), sorted_frequencies.end(), compareFrequency);
 
     size_t n = sorted_frequencies.size();
-    std::vector<double> probabilities(n);
-    
-    //подсчет количесвта встреч байтов
-    double total_frequency = std::accumulate(frequency_map.begin(), frequency_map.end(), 0.0,
-                                             [](double sum, const std::pair<unsigned char, int>& p) {
-                                                 return sum + p.second;
-                                             });
 
-    // Вычисляем вероятности
-    for (size_t i = 0; i < n; ++i) {
-        probabilities[i] = sorted_frequencies[i].second / total_frequency;
+    // Если только один тип символа, присваиваем ему код "0"
+    if (n == 1) {
+        dictionary[sorted_frequencies[0].first] = "0";
+        return dictionary;
     }
 
-    std::vector<double> cumulative_probabilities(n, 0.0);
+    std::vector<double> probabilities(n);
+    double total_frequency = 0.0;
+
+    // Подсчет общего количества встреч байтов
+    for (const auto& p : sorted_frequencies) {
+        total_frequency += p.second;
+    }
+
+    // Если общая частота равна нулю (хотя при n > 0 это маловероятно), возвращаем пустой словарь
+    if (total_frequency == 0.0) {
+        return dictionary;
+    }
+
+    // Вычисляем вероятности для каждого символа
+    for (size_t i = 0; i < n; ++i) {
+        probabilities[i] = static_cast<double>(sorted_frequencies[i].second) / total_frequency;
+    }
+
+    // Вычисляем кумулятивные вероятности
+    std::vector<double> cumulative_probabilities(n);
     cumulative_probabilities[0] = 0.0;
     for (size_t i = 1; i < n; ++i) {
         cumulative_probabilities[i] = cumulative_probabilities[i - 1] + probabilities[i - 1];
@@ -78,23 +102,42 @@ std::map<unsigned char, std::string> build_shannon_dictionary(const std::map<uns
 
     // Генерируем коды Шеннона
     for (size_t i = 0; i < n; ++i) {
-        std::string code = ""; // Инициализируем пустую строку для кода
-        double p = cumulative_probabilities[i]; // Начальное значение кумулятивной вероятности
-        int code_length = std::ceil(-std::log2(probabilities[i])); // Вычисляем длину кода
+        std::string code_str = ""; // Инициализируем пустую строку для кода
+        double p_val = cumulative_probabilities[i]; // Начальное значение кумулятивной вероятности
+
+        int code_length;
+        // Пропускаем символы с нулевой вероятностью 
+        if (probabilities[i] <= 0) {
+            continue;
+        }
+
+        // Вычисляем длину кода: ceil(-log2(P(x)))
+        // Для n > 1, вероятность не может быть 1.0 (т.к. есть другие символы)
+        // Но если она очень близка к 1, log2 может дать почти 0.
+        code_length = std::ceil(-std::log2(probabilities[i]));
+
+        // Минимальная длина кода - 1 бит
+        if (code_length == 0) {
+            code_length = 1;
+        }
 
         // Генерируем код Шеннона
         for (int j = 0; j < code_length; ++j) {
-            p *= 2.0; // Удваиваем значение p
-            if (p >= 1.0) {
-                code += '1'; // Добавляем '1' к коду
-                p -= 1.0; // Вычитаем 1.0 из p
+            p_val *= 2.0; // Удваиваем значение p_val
+            if (p_val >= 1.0) {
+                code_str += '1'; // Добавляем '1' к коду
+                p_val -= 1.0; // Вычитаем 1.0 из p_val
             } else {
-                code += '0'; // Добавляем '0' к коду
+                code_str += '0'; // Добавляем '0' к коду
             }
         }
 
-        // Сохраняем сгенерированный код в словаре
-        dictionary[sorted_frequencies[i].first] = code;
+        // Сохраняем сгенерированный код в словаре, если он не пустой
+        if (!code_str.empty()) {
+            dictionary[sorted_frequencies[i].first] = code_str;
+        } else {
+            std::cerr << "Предупреждение: Сгенерирован пустой код для символа с ID " << static_cast<int>(sorted_frequencies[i].first) << std::endl;
+        }
     }
 
     return dictionary;
@@ -171,29 +214,40 @@ std::map<unsigned char, std::string> load_dictionary(const std::string& filename
 
 /**
  * @brief Кодирует файл с использованием словаря Шеннона.
- * @param input_filename Имя входного файла.
- * @return true, если кодирование успешно.
+ *
+ * Эта функция открывает входной файл, вычисляет частоты байтов, строит словарь Шеннона,
+ * сохраняет словарь в отдельный файл и кодирует входной файл, записывая закодированные
+ * данные в выходной файл. В начало закодированного файла записывается служебная информация:
+ * исходный размер файла, размер словаря и случайный ID.
+ *
+ * @param input_filename Имя входного файла для кодирования.
+ * @return true, если кодирование успешно, false в противном случае.
  */
 bool encode_file(const std::string& input_filename) {
-    std::ifstream inputFile(input_filename, std::ios::binary);
+    // Открываем файл для получения размера и затем возвращаемся в начало
+    std::ifstream inputFile(input_filename, std::ios::binary | std::ios::ate);
     if (!inputFile.is_open()) {
         std::cerr << "Не удалось открыть входной файл: " << input_filename << std::endl;
         return false;
     }
+    std::streamsize original_size_ss = inputFile.tellg();
+    inputFile.seekg(0, std::ios::beg); // Возвращаемся в начало для чтения содержимого
 
-    // Читаем содержимое файла для подсчета частот
+    // Преобразуем размер файла в uint64_t
+    uint64_t original_file_size = static_cast<uint64_t>(original_size_ss);
+
+    // Вычисляем частоты байтов и строим словарь Шеннона
     std::map<unsigned char, int> frequency = calculate_frequency(input_filename);
-
-    // Строим словарь Шеннона
     std::map<unsigned char, std::string> dictionary = build_shannon_dictionary(frequency);
 
-    // Генерация случайного ID
+
+    // Генерируем случайный ID для связывания закодированного файла и словаря
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> distrib(0, 255);
     unsigned char id = static_cast<unsigned char>(distrib(gen));
 
-    // Получаем имя файла без пути и расширения
+    // Получаем имя файла без пути и расширения для формирования имен выходных файлов
     fs::path input_path = input_filename;
     std::string original_name = input_path.stem().string();
     std::string original_format = input_path.extension().string();
@@ -201,7 +255,7 @@ bool encode_file(const std::string& input_filename) {
     // Формируем имя файла для словаря
     std::string dictionary_filename = "work/dictionary/dict_" + std::to_string(static_cast<int>(id)) + "_" + original_name + ".bin";
 
-    // Сохраняем словарь
+    // Сохраняем словарь в файл
     if (!save_dictionary(dictionary, dictionary_filename, id)) {
         std::cerr << "Ошибка при сохранении словаря." << std::endl;
         return false;
@@ -216,26 +270,39 @@ bool encode_file(const std::string& input_filename) {
     }
 
     // Записываем служебные байты в начало закодированного файла
-    unsigned char dictionary_size = static_cast<unsigned char>(dictionary.size());
-    encodedFile.write(reinterpret_cast<const char*>(&dictionary_size), sizeof(dictionary_size));
+    // 1. Записываем исходный размер файла (uint64_t - 8 байт)
+    encodedFile.write(reinterpret_cast<const char*>(&original_file_size), sizeof(original_file_size));
+    // 2. Записываем размер словаря (количество записей в map) - 1 байт
+    unsigned char dictionary_map_size = static_cast<unsigned char>(dictionary.size());
+    encodedFile.write(reinterpret_cast<const char*>(&dictionary_map_size), sizeof(dictionary_map_size));
+    // 3. Записываем ID (1 байт)
     encodedFile.write(reinterpret_cast<const char*>(&id), sizeof(id));
 
+    // Если исходный файл пуст, больше ничего не пишем в закодированный файл
+    if (original_file_size == 0) {
+        encodedFile.close();
+        inputFile.close();
+        std::cout << "Файл (пустой) успешно закодирован в: " << encoded_filename << std::endl;
+        std::cout << "Словарь (пустой) сохранен в: " << dictionary_filename << std::endl;
+        return true;
+    }
+
     // Кодируем файл
-    inputFile.clear(); // Сбрасываем флаги ошибок
-    inputFile.seekg(0, std::ios::beg); // Переходим в начало файла
-
     unsigned char byte;
-    std::string current_code;
-    unsigned char current_byte = 0;
-    //int bits_in_byte = 0;
+    std::string current_code_buffer; // Буфер для накопления битов кода
+    unsigned char current_byte_to_write = 0; // Байт, который будет записан в файл
 
+    // Читаем файл побайтово и кодируем
     while (inputFile.read(reinterpret_cast<char*>(&byte), sizeof(byte))) {
+        // Проверяем, есть ли байт в словаре
         if (dictionary.count(byte)) {
-            current_code += dictionary[byte];
-            while (current_code.length() >= 8) {
-                std::string byte_str = current_code.substr(0, 8);
-                current_code.erase(0, 8);
-                current_byte = 0;
+            current_code_buffer += dictionary[byte]; // Добавляем код байта в буфер
+            // Пока в буфере достаточно битов для формирования полного байта (8 и более)
+            while (current_code_buffer.length() >= 8) {
+                std::string byte_str = current_code_buffer.substr(0, 8); // Берем первые 8 битов
+                current_code_buffer.erase(0, 8); // Удаляем эти 8 битов из буфера
+                current_byte_to_write = 0; // Сбрасываем байт для записи
+                // Преобразуем строку из '0' и '1' в байт
                 for (int i = 0; i < 8; ++i) {
                     if (byte_str[i] == '1') {
                         // Устанавливаем бит в current_byte на позиции (7 - i), если соответствующий бит в byte_str равен '1'
@@ -243,10 +310,10 @@ bool encode_file(const std::string& input_filename) {
                         // Если current_byte = 10000000, то после выполнения операции:
                         // current_byte = 10000000 | 00100000 = 10100000
                         // коротко - побитовое или + сдвиг битов
-                        current_byte |= (1 << (7 - i));
+                        current_byte_to_write |= (1 << (7 - i));
                     }
                 }
-                encodedFile.write(reinterpret_cast<const char*>(&current_byte), sizeof(current_byte));
+                encodedFile.write(reinterpret_cast<const char*>(&current_byte_to_write), sizeof(current_byte_to_write));
             }
         } else {
             std::cerr << "Ошибка: байт 0x" << std::hex << static_cast<int>(byte) << std::dec << " не найден в словаре." << std::endl;
@@ -256,20 +323,23 @@ bool encode_file(const std::string& input_filename) {
         }
     }
 
-    // Записываем оставшиеся биты (дополняем нулями до полного байта)
-    if (!current_code.empty()) {
-        while (current_code.length() < 8) {
-            current_code += '0';
+    // Записываем оставшиеся биты, если они есть (дополняем нулями до полного байта)
+    if (!current_code_buffer.empty()) {
+        while (current_code_buffer.length() < 8) {
+            current_code_buffer += '0'; // Дополняем нулями
         }
-        current_byte = 0;
+        current_byte_to_write = 0; // Сбрасываем байт для записи
+        // Преобразуем оставшиеся биты в байт
         for (int i = 0; i < 8; ++i) {
-            if (current_code[i] == '1') {
-                current_byte |= (1 << (7 - i));
+            if (current_code_buffer[i] == '1') {
+                current_byte_to_write |= (1 << (7 - i));
             }
         }
-        encodedFile.write(reinterpret_cast<const char*>(&current_byte), sizeof(current_byte));
+        // Записываем последний байт
+        encodedFile.write(reinterpret_cast<const char*>(&current_byte_to_write), sizeof(current_byte_to_write));
     }
 
+    // Закрываем файлы и выводим сообщение об успехе
     encodedFile.close();
     inputFile.close();
     std::cout << "Файл успешно закодирован в: " << encoded_filename << std::endl;
