@@ -58,6 +58,8 @@ std::map<unsigned char, std::string> build_shannon_dictionary(const std::map<uns
 
     size_t n = sorted_frequencies.size();
     std::vector<double> probabilities(n);
+    
+    //подсчет количесвта встреч байтов
     double total_frequency = std::accumulate(frequency_map.begin(), frequency_map.end(), 0.0,
                                              [](double sum, const std::pair<unsigned char, int>& p) {
                                                  return sum + p.second;
@@ -112,14 +114,15 @@ bool save_dictionary(const std::map<unsigned char, std::string>& dictionary, con
         return false;
     }
 
-    unsigned char dictionary_size = static_cast<unsigned char>(dictionary.size());
+    // Используем uint16_t для хранения длины словаря (2 байта)
+    uint16_t dictionary_size = static_cast<uint16_t>(dictionary.size());
     file.write(reinterpret_cast<const char*>(&dictionary_size), sizeof(dictionary_size));
     file.write(reinterpret_cast<const char*>(&random_byte), sizeof(random_byte));
 
     for (const auto& pair : dictionary) {
         unsigned char byte = pair.first;
         std::string code = pair.second;
-        unsigned char code_length = static_cast<unsigned char>(code.length());
+        uint16_t code_length = static_cast<uint16_t>(code.length()); // Используем uint16_t для длины кода
 
         file.write(reinterpret_cast<const char*>(&byte), sizeof(byte));
         file.write(reinterpret_cast<const char*>(&code_length), sizeof(code_length));
@@ -146,13 +149,14 @@ std::map<unsigned char, std::string> load_dictionary(const std::string& filename
         return dictionary;
     }
 
-    unsigned char dictionary_size;
+    // Читаем длину словаря как uint16_t (2 байта)
+    uint16_t dictionary_size;
     file.read(reinterpret_cast<char*>(&dictionary_size), sizeof(dictionary_size));
     file.read(reinterpret_cast<char*>(&stored_random_byte), sizeof(stored_random_byte));
 
     for (int i = 0; i < dictionary_size; ++i) {
         unsigned char byte;
-        unsigned char code_length;
+        uint16_t code_length; // Используем uint16_t для длины кода
         file.read(reinterpret_cast<char*>(&byte), sizeof(byte));
         file.read(reinterpret_cast<char*>(&code_length), sizeof(code_length));
         std::vector<char> code_buffer(code_length);
@@ -234,6 +238,11 @@ bool encode_file(const std::string& input_filename) {
                 current_byte = 0;
                 for (int i = 0; i < 8; ++i) {
                     if (byte_str[i] == '1') {
+                        // Устанавливаем бит в current_byte на позиции (7 - i), если соответствующий бит в byte_str равен '1'
+                        // Пример: если i = 2, то 1 << (7 - 2) = 1 << 5 = 00100000 
+                        // Если current_byte = 10000000, то после выполнения операции:
+                        // current_byte = 10000000 | 00100000 = 10100000
+                        // коротко - побитовое или + сдвиг битов
                         current_byte |= (1 << (7 - i));
                     }
                 }
