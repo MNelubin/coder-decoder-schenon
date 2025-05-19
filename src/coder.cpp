@@ -272,8 +272,8 @@ bool encode_file(const std::string& input_filename) {
     // Записываем служебные байты в начало закодированного файла
     // 1. Записываем исходный размер файла (uint64_t - 8 байт)
     encodedFile.write(reinterpret_cast<const char*>(&original_file_size), sizeof(original_file_size));
-    // 2. Записываем размер словаря (количество записей в map) - 1 байт
-    unsigned char dictionary_map_size = static_cast<unsigned char>(dictionary.size());
+    // 2. Записываем размер словаря (количество записей в map) - используем uint16_t (2 байта)
+    uint16_t dictionary_map_size = static_cast<uint16_t>(dictionary.size());
     encodedFile.write(reinterpret_cast<const char*>(&dictionary_map_size), sizeof(dictionary_map_size));
     // 3. Записываем ID (1 байт)
     encodedFile.write(reinterpret_cast<const char*>(&id), sizeof(id));
