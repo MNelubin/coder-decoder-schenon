@@ -34,15 +34,15 @@ bool decode_file(const std::string& encoded_filename) {
     size_t file_size_check = encodedFile.tellg();
     encodedFile.seekg(0, std::ios::beg);
 
-    // Минимальный заголовок: original_size (8) + dictionary_map_size (1) + id (1) = 10 байт
-    if (file_size_check < sizeof(uint64_t) + sizeof(unsigned char) + sizeof(unsigned char)) {
+    // Минимальный заголовок: original_size (8) + dictionary_map_size (2) + id (1) = 11 байт (изменено с 10)
+    if (file_size_check < sizeof(uint64_t) + sizeof(uint16_t) + sizeof(unsigned char)) {
         std::cerr << "Ошибка: Закодированный файл слишком мал для чтения заголовка." << std::endl;
         encodedFile.close();
         return false;
     }
 
     uint64_t original_file_size;
-    unsigned char stored_dictionary_map_size; // Размер карты словаря
+    uint16_t stored_dictionary_map_size; // Размер карты словаря (изменено с unsigned char)
     unsigned char stored_id;
 
     // 1. Читаем исходный размер файла
@@ -155,8 +155,11 @@ bool decode_file(const std::string& encoded_filename) {
     // Счетчик записанных байтов в декодированный файл
     uint64_t bytes_written = 0; // Используем uint64_t для соответствия original_file_size
 
+    // Флаг для отслеживания завершения декодирования
+    bool decoding_finished = false;
+
     // Читаем закодированный файл побайтово
-    while (encodedFile.read(reinterpret_cast<char*>(&byte_read), sizeof(byte_read))) {
+    while (encodedFile.read(reinterpret_cast<char*>(&byte_read), sizeof(byte_read)) && !decoding_finished) {
         // Проходим по каждому биту в байте (от старшего к младшему)
         for (int i = 7; i >= 0; --i) {
             // Проверяем, установлен ли текущий бит (i-й бит)
@@ -177,22 +180,24 @@ bool decode_file(const std::string& encoded_filename) {
                 // Очищаем буфер для следующей последовательности битов
                 current_bit_buffer.clear();
 
-                // Если достигнут исходный размер файла, прекращаем декодирование
+                // Если достигнут исходный размер файла, устанавливаем флаг и выходим из внутреннего цикла
                 if (bytes_written == original_file_size) {
-                    // Дополнительные биты в конце файла игнорируются
-                    goto decoding_complete; // Выходим из вложенных циклов
+                    decoding_finished = true;
+                    break; // Выходим из внутреннего цикла for
                 }
             }
         }
+        // Если флаг установлен во внутреннем цикле, выходим и из внешнего цикла while
+        if (decoding_finished) {
+            break;
+        }
     }
-// да я использовал goto, но это не очень хорошо, но я не знаю как сделать лучше
-decoding_complete:; // Метка для перехода
 
     // Проверяем, соответствует ли количество записанных байтов исходному размеру файла
     if (bytes_written != original_file_size) {
         std::cerr << "Ошибка: Количество декодированных байтов (" << bytes_written
                   << ") не соответствует исходному размеру файла (" << original_file_size << ")." << std::endl;
-        
+
         encodedFile.close();
         decodedFile.close();
         return false;
