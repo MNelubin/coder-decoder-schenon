@@ -79,7 +79,10 @@ clean:
 	@echo "Cleaning object files..."
 	rm -f $(APP_OBJ) $(LIB_OBJ) $(TEST_OBJ)
 
+
 cleanall: clean
 	@echo "Cleaning executables and library..."
 	rm -f $(PROJECT) $(LIBPROJECT) $(TESTPROJECT)
-	rm -rf *.txt
+	rm -rf work/dictionary/*
+	rm -rf work/encoded/*
+	rm -rf work/decoded/*
